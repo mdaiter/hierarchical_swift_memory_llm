@@ -25,12 +25,13 @@ swift run EmailMemoryDemo
 ```
 
 The demo:
-1. Builds omnichannel interactions (3 emails, 2 Slack messages, 2 iMessages).
+1. Builds ~150 omnichannel interactions (~30 emails, 20 Slack updates, 100 quick chat messages).
 2. Constructs memory chunks across levels and prints per-level counts plus compression stats.
 3. Builds persona/entity/situation cards using sample text.
 4. Runs multi-stage retrieval for a sample query.
 5. Renders the ASCII chunk tree + unified context block.
-6. Drafts an LLM reply using persona, entity insights, situation summary, and selected chunks.
+6. Dumps the graph traversal trace (ASCII) that shows how the ANN search walked the k-NN graph.
+7. Drafts an LLM reply using persona, entity insights, situation summary, and selected chunks.
 
 ## Usage
 

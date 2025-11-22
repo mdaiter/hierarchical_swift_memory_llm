@@ -50,69 +50,35 @@ public final class GraphMemoryIndex: @unchecked Sendable {
         queryEmbedding: [Double],
         k: Int,
         filter: SearchFilter? = nil,
-        includeRecency: Bool = true
+        includeRecency: Bool = true,
+        extraTraversals: Int = 0
     ) -> [MemoryChunk] {
-        guard !nodes.isEmpty, !queryEmbedding.isEmpty else {
-            return []
-        }
-
-        let k = max(1, k)
-        let targetCandidates = min(nodes.count, max(k * 4, k + 2))
-        let entryIndices = initialEntryPoints(queryEmbedding: queryEmbedding, maxEntries: min(8, nodes.count))
-
-        var visited = Set<Int>()
-        var frontier = PriorityQueue<(index: Int, score: Double)>(sort: { $0.score > $1.score })
-
-        for idx in entryIndices {
-            guard idx >= 0 && idx < nodes.count else { continue }
-            let node = nodes[idx]
-            let sim = cosineSimilarity(node.embedding, queryEmbedding)
-            let score = combinedScore(similarity: sim, node: node, includeRecency: includeRecency)
-            frontier.enqueue((index: idx, score: score))
-        }
-
-        var candidates: [(index: Int, score: Double)] = []
-        let maxExplorations = min(nodes.count, targetCandidates * 5)
-
-        while let current = frontier.dequeue(), visited.count < maxExplorations {
-            if visited.contains(current.index) {
-                continue
-            }
-            visited.insert(current.index)
-
-            let node = nodes[current.index]
-            if filter?.isChunkEligible(node.chunk) ?? true {
-                candidates.append(current)
-                if candidates.count >= targetCandidates {
-                    break
-                }
-            }
-
-            for neighborIdx in node.neighbors {
-                if visited.contains(neighborIdx) {
-                    continue
-                }
-                let neighbor = nodes[neighborIdx]
-                let sim = cosineSimilarity(neighbor.embedding, queryEmbedding)
-                let score = combinedScore(similarity: sim, node: neighbor, includeRecency: includeRecency)
-                frontier.enqueue((index: neighborIdx, score: score))
-            }
-        }
-
-        if candidates.isEmpty {
-            return []
-        }
-
-        let mmr = mmrSelectCandidates(
-            candidates: candidates,
+        searchInternal(
             queryEmbedding: queryEmbedding,
-            k: k
-        )
+            k: k,
+            filter: filter,
+            includeRecency: includeRecency,
+            captureTrace: false,
+            extraTraversals: extraTraversals
+        ).chunks
+    }
 
-        return mmr.compactMap { candidate in
-            guard candidate.index >= 0 && candidate.index < nodes.count else { return nil }
-            return nodes[candidate.index].chunk
-        }
+    /// Returns search results plus an ASCII-friendly traversal trace.
+    public func searchWithTrace(
+        queryEmbedding: [Double],
+        k: Int,
+        filter: SearchFilter? = nil,
+        includeRecency: Bool = true,
+        extraTraversals: Int = 0
+    ) -> (chunks: [MemoryChunk], trace: [String]) {
+        searchInternal(
+            queryEmbedding: queryEmbedding,
+            k: k,
+            filter: filter,
+            includeRecency: includeRecency,
+            captureTrace: true,
+            extraTraversals: extraTraversals
+        )
     }
 
     // MARK: - Graph Construction
@@ -169,7 +135,11 @@ public final class GraphMemoryIndex: @unchecked Sendable {
 
     // MARK: - Helpers
 
-    private func initialEntryPoints(queryEmbedding: [Double], maxEntries: Int) -> [Int] {
+    private func initialEntryPoints(
+        queryEmbedding: [Double],
+        maxEntries: Int,
+        extraTraversals: Int
+    ) -> [(index: Int, isExtra: Bool)] {
         if nodes.isEmpty { return [] }
         var scored: [(index: Int, score: Double)] = []
         for idx in 0..<nodes.count {
@@ -178,7 +148,18 @@ public final class GraphMemoryIndex: @unchecked Sendable {
             scored.append((idx, sim))
         }
         scored.sort { $0.score > $1.score }
-        return Array(scored.prefix(maxEntries).map { $0.index })
+        var entries: [(index: Int, isExtra: Bool)] = Array(
+            scored.prefix(maxEntries).map { ($0.index, false) }
+        )
+        if extraTraversals > 0 {
+            var remaining = Array(0..<nodes.count).filter { idx in
+                !entries.contains(where: { $0.index == idx })
+            }
+            remaining.shuffle()
+            let extras = remaining.prefix(extraTraversals).map { ($0, true) }
+            entries.append(contentsOf: extras)
+        }
+        return entries
     }
 
     private func cosineSimilarity(_ a: [Double], _ b: [Double]) -> Double {
@@ -255,5 +236,100 @@ public final class GraphMemoryIndex: @unchecked Sendable {
         }
 
         return selected
+    }
+    private func searchInternal(
+        queryEmbedding: [Double],
+        k: Int,
+        filter: SearchFilter?,
+        includeRecency: Bool,
+        captureTrace: Bool,
+        extraTraversals: Int
+    ) -> (chunks: [MemoryChunk], trace: [String]) {
+        guard !nodes.isEmpty, !queryEmbedding.isEmpty else {
+            return ([], [])
+        }
+
+        let k = max(1, k)
+        let targetCandidates = min(nodes.count, max(k * 4, k + 2))
+        let entryInfo = initialEntryPoints(
+            queryEmbedding: queryEmbedding,
+            maxEntries: min(8, nodes.count),
+            extraTraversals: max(0, extraTraversals)
+        )
+
+        var visited = Set<Int>()
+        var frontier = PriorityQueue<(index: Int, score: Double)>(sort: { $0.score > $1.score })
+        var traceLines: [String] = []
+
+        for entry in entryInfo {
+            let idx = entry.index
+            guard idx >= 0 && idx < nodes.count else { continue }
+            let node = nodes[idx]
+            let sim = cosineSimilarity(node.embedding, queryEmbedding)
+            let score = combinedScore(similarity: sim, node: node, includeRecency: includeRecency)
+            frontier.enqueue((index: idx, score: score))
+            if captureTrace {
+                let prefix = entry.isExtra ? "Extra entry →" : "Entry →"
+                traceLines.append("\(prefix) \(node.id) (score: \(format(score)))")
+            }
+        }
+
+        var candidates: [(index: Int, score: Double)] = []
+        let maxExplorations = min(nodes.count, targetCandidates * 5)
+
+        while let current = frontier.dequeue(), visited.count < maxExplorations {
+            if visited.contains(current.index) {
+                continue
+            }
+            visited.insert(current.index)
+
+            let node = nodes[current.index]
+            let eligible = filter?.isChunkEligible(node.chunk) ?? true
+            if captureTrace {
+                let marker = eligible ? "✓" : "✗"
+                traceLines.append("[\(visited.count - 1)] \(node.id) (score: \(format(current.score))) \(marker)")
+            }
+            if eligible {
+                candidates.append(current)
+                if candidates.count >= targetCandidates {
+                    break
+                }
+            }
+
+            let neighborCount = node.neighbors.count
+            for (idx, neighborIdx) in node.neighbors.enumerated() {
+                if visited.contains(neighborIdx) {
+                    continue
+                }
+                let neighbor = nodes[neighborIdx]
+                let sim = cosineSimilarity(neighbor.embedding, queryEmbedding)
+                let score = combinedScore(similarity: sim, node: neighbor, includeRecency: includeRecency)
+                frontier.enqueue((index: neighborIdx, score: score))
+
+                if captureTrace {
+                    let connector = idx == neighborCount - 1 ? "└─" : "├─"
+                    traceLines.append("   \(connector) queue \(neighbor.id) (score: \(format(score)))")
+                }
+            }
+        }
+
+        if candidates.isEmpty {
+            return ([], captureTrace ? traceLines : [])
+        }
+
+        let mmr = mmrSelectCandidates(
+            candidates: candidates,
+            queryEmbedding: queryEmbedding,
+            k: k
+        )
+
+        let chunks = mmr.compactMap { candidate in
+            nodes.indices.contains(candidate.index) ? nodes[candidate.index].chunk : nil
+        }
+        return (chunks, captureTrace ? traceLines : [])
+    }
+
+    private func format(_ value: Double) -> String {
+        String(format: "%.3f", value)
     }
 }

@@ -12,13 +12,33 @@ public final class MemoryIndex: @unchecked Sendable {
     public func search(
         queryEmbedding: [Double],
         k: Int,
-        filter: SearchFilter? = nil
+        filter: SearchFilter? = nil,
+        extraTraversals: Int = 0
     ) -> [MemoryChunk] {
         graphIndex.search(
             queryEmbedding: queryEmbedding,
             k: k,
             filter: filter,
-            includeRecency: true
+            includeRecency: true,
+            extraTraversals: extraTraversals
         )
+    }
+
+    /// Returns chunks plus an ASCII traversal trace for debugging.
+    public func searchWithTrace(
+        queryEmbedding: [Double],
+        k: Int,
+        filter: SearchFilter? = nil,
+        extraTraversals: Int = 0
+    ) -> (chunks: [MemoryChunk], trace: String) {
+        let result = graphIndex.searchWithTrace(
+            queryEmbedding: queryEmbedding,
+            k: k,
+            filter: filter,
+            includeRecency: true,
+            extraTraversals: extraTraversals
+        )
+        let traceText = result.trace.joined(separator: "\n")
+        return (result.chunks, traceText)
     }
 }

@@ -18,7 +18,13 @@ public struct MultiStageRetriever: Sendable {
         k: Int = 8
     ) async throws -> (selectedChunks: [MemoryChunk], enrichedContext: String) {
         guard !chunks.isEmpty else {
-            let bundle = buildContext(persona: persona, entities: entityCards, situation: situation, chunks: [])
+            let bundle = buildContext(
+                persona: persona,
+                entities: entityCards,
+                situation: situation,
+                chunks: [],
+                graphTrace: nil
+            )
             return ([], bundle)
         }
 
@@ -52,11 +58,14 @@ public struct MultiStageRetriever: Sendable {
         )
 
         let index = MemoryIndex(chunks: candidateChunks)
-        var preliminary = index.search(
+        let searchResult = index.searchWithTrace(
             queryEmbedding: queryEmbedding,
             k: max(12, k * 3),
-            filter: filter
+            filter: filter,
+            extraTraversals: 4
         )
+        var preliminary = searchResult.chunks
+        let traversalTrace = searchResult.trace
 
         if preliminary.count > k {
             let judgments = try await openAI.relevanceJudgments(query: query, chunkSummaries: preliminary)
@@ -79,7 +88,13 @@ public struct MultiStageRetriever: Sendable {
             return lhs.1 > rhs.1
         }
         let selected = rescored.prefix(min(k, rescored.count)).map { $0.0 }
-        let context = buildContext(persona: persona, entities: entityCards, situation: situation, chunks: selected)
+        let context = buildContext(
+            persona: persona,
+            entities: entityCards,
+            situation: situation,
+            chunks: selected,
+            graphTrace: traversalTrace
+        )
         return (selected, context)
     }
 
@@ -134,7 +149,8 @@ public struct MultiStageRetriever: Sendable {
         persona: PersonaCard?,
         entities: [EntityCard],
         situation: SituationCard?,
-        chunks: [MemoryChunk]
+        chunks: [MemoryChunk],
+        graphTrace: String?
     ) -> String {
         var sections: [String] = []
         sections.append("MY_PERSONA:\n\(persona?.summaryText ?? "Not provided.")")
@@ -154,6 +170,9 @@ public struct MultiStageRetriever: Sendable {
                 "=== Chunk (level \(chunk.level), id \(chunk.id)) ===\n\(chunk.summaryText)"
             }.joined(separator: "\n\n")
             sections.append("RELEVANT_CONTEXT:\n\(chunkText)")
+        }
+        if let graphTrace, !graphTrace.isEmpty {
+            sections.append("GRAPH_TRAVERSAL_TRACE:\n\(graphTrace)")
         }
         return sections.joined(separator: "\n\n")
     }

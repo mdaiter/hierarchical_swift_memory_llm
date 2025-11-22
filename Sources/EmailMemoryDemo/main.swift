@@ -90,82 +90,88 @@ struct EmailMemoryDemoApp {
 
 private enum SampleData {
     static func makeInteractions() -> [Interaction] {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime]
-        func ts(_ string: String) -> Date { iso.date(from: string) ?? Date() }
+        let calendar = Calendar(identifier: .iso8601)
+        let baseDate = calendar.date(from: DateComponents(year: 2024, month: 5, day: 1, hour: 8, minute: 0)) ?? Date()
+        func timestamp(minutes offset: Int) -> Date {
+            calendar.date(byAdding: .minute, value: offset, to: baseDate) ?? baseDate
+        }
         let threadId = "agentic-process-costs"
-        return [
-            Interaction(
-                id: "email-1",
-                sourceKind: .email,
-                threadId: threadId,
-                from: "ben@vectorpulse.ai",
-                to: ["matthew@atlas.vc"],
-                subjectOrTitle: "Agentic pilots and pricing",
-                body: "Matthew, looping back on the agentic ops pilot. Finance needs clarity on infra costs if we keep workloads in your tenancy.",
-                timestamp: ts("2024-05-01T15:04:00Z")
-            ),
-            Interaction(
-                id: "email-2",
-                sourceKind: .email,
-                threadId: threadId,
-                from: "matthew@atlas.vc",
-                to: ["ben@vectorpulse.ai"],
-                subjectOrTitle: "Re: Agentic pilots and pricing",
-                body: "Thanks Ben. Infra on our side adds roughly 12% overhead but gives you SOC2 + audit trails. Happy to dig in on a call.",
-                timestamp: ts("2024-05-01T16:28:00Z")
-            ),
-            Interaction(
-                id: "email-3",
-                sourceKind: .email,
-                threadId: threadId,
-                from: "ben@vectorpulse.ai",
-                to: ["matthew@atlas.vc"],
-                subjectOrTitle: "Re: Agentic pilots and pricing",
-                body: "Understood. Could we cap the infra uplift at 10% if we commit to 18-month term and share anonymized telemetry?",
-                timestamp: ts("2024-05-02T09:10:00Z")
-            ),
-            Interaction(
-                id: "slack-1",
-                sourceKind: .slack,
-                threadId: threadId,
-                from: "matthew@atlas.vc",
-                to: ["ops-team@atlas"],
-                subjectOrTitle: "#rev-ops",
-                body: "Heads up: Ben wants clarity on automation audit logs + seat minimums. Collect last quarter's churn notes before our sync.",
-                timestamp: ts("2024-05-02T12:40:00Z")
-            ),
-            Interaction(
-                id: "slack-2",
-                sourceKind: .slack,
-                threadId: threadId,
-                from: "ops-analyst@atlas",
-                to: ["matthew@atlas.vc"],
-                subjectOrTitle: "DM",
-                body: "Churn reasons mostly due to lack of workflow notes. Ben's team specifically asked for runbooks last fall.",
-                timestamp: ts("2024-05-02T13:05:00Z")
-            ),
-            Interaction(
-                id: "imessage-1",
-                sourceKind: .imessage,
-                threadId: threadId,
-                from: "ben@vectorpulse.ai",
-                to: ["matthew@atlas.vc"],
-                subjectOrTitle: nil,
-                body: "Quick ping: ok if we pilot with 20 seats in June then ramp to 60 by August?",
-                timestamp: ts("2024-05-02T14:22:00Z")
-            ),
-            Interaction(
-                id: "imessage-2",
-                sourceKind: .imessage,
-                threadId: threadId,
-                from: "matthew@atlas.vc",
-                to: ["ben@vectorpulse.ai"],
-                subjectOrTitle: nil,
-                body: "20 -> 60 ramp works. Need final approval on telemetry-sharing clause before we lock the uplift cap.",
-                timestamp: ts("2024-05-02T14:38:00Z")
+        var interactions: [Interaction] = []
+
+        // 30 emails between Matthew and Ben (and some CCs)
+        for i in 0..<30 {
+            let fromMatthew = i % 2 == 0
+            let from = fromMatthew ? "matthew@atlas.vc" : "ben@vectorpulse.ai"
+            let to = fromMatthew ? ["ben@vectorpulse.ai", "ops@atlas.vc"] : ["matthew@atlas.vc"]
+            let subject = "Agentic pilot update #\(i + 1)"
+            let body = fromMatthew
+                ? "Following up on legal + telemetry alignment. Update #\(i + 1) covers capacity planning and finance guardrails."
+                : "Ben here — finance noted question #\(i + 1) about infra uplift vs. shared tenancy. Need clarity on audit logging."
+            interactions.append(
+                Interaction(
+                    id: "email-\(i + 1)",
+                    sourceKind: .email,
+                    threadId: threadId,
+                    from: from,
+                    to: to,
+                    subjectOrTitle: subject,
+                    body: body,
+                    timestamp: timestamp(minutes: i * 45)
+                )
             )
-        ]
+        }
+
+        // 20 Slack messages in #rev-ops and DMs
+        for i in 0..<20 {
+            let from = i % 3 == 0 ? "matthew@atlas.vc" : (i % 3 == 1 ? "ops-analyst@atlas" : "cfo@atlas.vc")
+            let to: [String]
+            let subject: String
+            if i % 5 == 0 {
+                to = ["ops-team@atlas"]
+                subject = "#rev-ops"
+            } else {
+                to = ["matthew@atlas.vc"]
+                subject = "DM"
+            }
+            let body = "Slack update \(i + 1): tracking audit coverage, billing carve-outs, and automation runbooks."
+            interactions.append(
+                Interaction(
+                    id: "slack-\(i + 1)",
+                    sourceKind: .slack,
+                    threadId: threadId,
+                    from: from,
+                    to: to,
+                    subjectOrTitle: subject,
+                    body: body,
+                    timestamp: timestamp(minutes: 1400 + i * 5)
+                )
+            )
+        }
+
+        // 100 quick messages across iMessage and WhatsApp
+        for i in 0..<100 {
+            let isWhatsApp = i % 2 == 0
+            let kind: SourceKind = isWhatsApp ? .whatsapp : .imessage
+            let from = isWhatsApp ? "ben@vectorpulse.ai" : "matthew@atlas.vc"
+            let to = isWhatsApp ? ["matthew@atlas.vc"] : ["ben@vectorpulse.ai"]
+            let body = isWhatsApp
+                ? "WhatsApp ping \(i + 1): confirming seat ramp + telemetry clause ack?"
+                : "iMessage \(i + 1): pushing deck to finance and legal for signature."
+            interactions.append(
+                Interaction(
+                    id: "chat-\(i + 1)",
+                    sourceKind: kind,
+                    threadId: threadId,
+                    from: from,
+                    to: to,
+                    subjectOrTitle: nil,
+                    body: body,
+                    timestamp: timestamp(minutes: 1600 + i * 2)
+                )
+            )
+        }
+
+        return interactions.sorted { $0.timestamp < $1.timestamp }
     }
 
     static let personaSamples: [String] = [
