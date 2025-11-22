@@ -52,6 +52,7 @@ public struct MemoryChunk: Identifiable, Codable, Sendable {
     public let sourceInteractionIds: [String]
     public let participants: [String]
     public let sourceKinds: [SourceKind]
+    public let latestTimestamp: Date?
 
     public init(
         id: String,
@@ -60,7 +61,8 @@ public struct MemoryChunk: Identifiable, Codable, Sendable {
         embedding: [Double],
         sourceInteractionIds: [String],
         participants: [String],
-        sourceKinds: [SourceKind]
+        sourceKinds: [SourceKind],
+        latestTimestamp: Date?
     ) {
         self.id = id
         self.level = level
@@ -69,5 +71,6 @@ public struct MemoryChunk: Identifiable, Codable, Sendable {
         self.sourceInteractionIds = sourceInteractionIds
         self.participants = participants
         self.sourceKinds = sourceKinds
+        self.latestTimestamp = latestTimestamp
     }
 }

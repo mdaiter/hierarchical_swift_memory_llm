@@ -12,7 +12,8 @@ EmailMemory started as a lightweight Swift package for summarizing email threads
 - **Interactions**: Unified data model across channels (`Interaction` + `SourceKind`).
 - **Semantic compression**: `OmnichannelMemoryBuilder` chunks chronologically, summarizes with the LLM, embeds, and assembles a hierarchy to avoid repeatedly streaming raw transcripts.
 - **Memory cards**: `EntityCard`, `PersonaCard`, and `SituationCard` capture people/org history, the user’s tone, and rolling thread state respectively.
-- **Multi-stage retrieval**: `MultiStageRetriever` filters by participant/channel, runs vector search, optionally re-ranks via LLM, applies recency bias, and assembles persona/entity/situation context blocks ready for prompts.
+- **Graph-based retrieval**: `GraphMemoryIndex` maintains a lightweight k-NN graph (HNSW style) with metadata filters, greedy search, recency decay, and MMR diversity so lookups stay fast even as memories grow.
+- **Multi-stage retrieval**: `MultiStageRetriever` filters by participant/channel, runs the graph index, optionally re-ranks via LLM, applies recency bias, and assembles persona/entity/situation context blocks ready for prompts.
 - **Context visualization**: `ContextRetriever` and `SemanticCompressionReporter` generate human-readable context blocks, ASCII trees, and compression reports to explain what the engine selected and why.
 
 ## Demo

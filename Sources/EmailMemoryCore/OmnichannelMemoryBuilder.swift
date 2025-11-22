@@ -27,6 +27,7 @@ public struct OmnichannelMemoryBuilder: Sendable {
             let embedding = try await openAI.embedText(summary)
             let participants = participantsFor(group)
             let sourceKinds = Array(Set(group.map { $0.sourceKind }))
+            let latestTimestamp = group.map { $0.timestamp }.max()
             let chunk = MemoryChunk(
                 id: UUID().uuidString,
                 level: 0,
@@ -34,7 +35,8 @@ public struct OmnichannelMemoryBuilder: Sendable {
                 embedding: embedding,
                 sourceInteractionIds: group.map { $0.id },
                 participants: participants,
-                sourceKinds: sourceKinds
+                sourceKinds: sourceKinds,
+                latestTimestamp: latestTimestamp
             )
             levelZero.append(chunk)
             allChunks.append(chunk)
@@ -56,6 +58,7 @@ public struct OmnichannelMemoryBuilder: Sendable {
                 let embedding = try await openAI.embedText(summary)
                 let participants = Array(Set(aggregate.flatMap { $0.participants })).sorted()
                 let kinds = Array(Set(aggregate.flatMap { $0.sourceKinds }))
+                let latestTimestamp = aggregate.compactMap { $0.latestTimestamp }.max()
                 let chunk = MemoryChunk(
                     id: UUID().uuidString,
                     level: level,
@@ -63,7 +66,8 @@ public struct OmnichannelMemoryBuilder: Sendable {
                     embedding: embedding,
                     sourceInteractionIds: aggregate.flatMap { $0.sourceInteractionIds },
                     participants: participants,
-                    sourceKinds: kinds
+                    sourceKinds: kinds,
+                    latestTimestamp: latestTimestamp
                 )
                 nextLevel.append(chunk)
                 allChunks.append(chunk)

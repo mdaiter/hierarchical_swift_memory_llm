@@ -45,27 +45,32 @@ public struct MultiStageRetriever: Sendable {
             }
         }
 
-        let index = MemoryIndex(chunks: candidateChunks)
-        let preliminary = index.searchWithScores(
-            queryEmbedding: queryEmbedding,
-            maxResults: max(30, k * 3)
+        let filter = SearchFilter(
+            requiredParticipants: requiredParticipants(from: entityCards),
+            allowedSourceKinds: preferredSources.isEmpty ? nil : preferredSources,
+            timeWindow: nil
         )
 
-        var scoredChunks = preliminary
-        if scoredChunks.count > k {
-            let judgments = try await openAI.relevanceJudgments(query: query, chunkSummaries: scoredChunks.map { $0.chunk })
-            let filtered = scoredChunks.filter { judgments[$0.chunk.id] ?? true }
+        let index = MemoryIndex(chunks: candidateChunks)
+        var preliminary = index.search(
+            queryEmbedding: queryEmbedding,
+            k: max(12, k * 3),
+            filter: filter
+        )
+
+        if preliminary.count > k {
+            let judgments = try await openAI.relevanceJudgments(query: query, chunkSummaries: preliminary)
+            let filtered = preliminary.filter { judgments[$0.id] ?? true }
             if !filtered.isEmpty {
-                scoredChunks = filtered
+                preliminary = filtered
             }
         }
 
-        let recencyWeights = recencyMap(for: chunks)
-        let final = scoredChunks.map { tuple -> (MemoryChunk, Double) in
-            let similarity = normalizeCosine(tuple.similarity)
-            let recency = recencyWeights[tuple.chunk.id] ?? 0.5
+        let rescored = preliminary.map { chunk -> (MemoryChunk, Double) in
+            let similarity = cosineSimilarity(chunk.embedding, queryEmbedding)
+            let recency = recencyBoost(for: chunk)
             let score = 0.7 * similarity + 0.3 * recency
-            return (tuple.chunk, score)
+            return (chunk, score)
         }
         .sorted { lhs, rhs in
             if lhs.1 == rhs.1 {
@@ -73,25 +78,40 @@ public struct MultiStageRetriever: Sendable {
             }
             return lhs.1 > rhs.1
         }
-        let selected = final.prefix(min(k, final.count)).map { $0.0 }
+        let selected = rescored.prefix(min(k, rescored.count)).map { $0.0 }
         let context = buildContext(persona: persona, entities: entityCards, situation: situation, chunks: selected)
         return (selected, context)
     }
 
-    private func recencyMap(for chunks: [MemoryChunk]) -> [String: Double] {
-        guard chunks.count > 1 else {
-            return Dictionary(uniqueKeysWithValues: chunks.map { ($0.id, 1.0) })
-        }
-        let denom = Double(chunks.count - 1)
-        var result: [String: Double] = [:]
-        for (index, chunk) in chunks.enumerated() {
-            result[chunk.id] = Double(index) / denom
-        }
-        return result
+    private func requiredParticipants(from entityCards: [EntityCard]) -> Set<String>? {
+        guard !entityCards.isEmpty else { return nil }
+        return Set(entityCards.map { $0.entityId.lowercased() })
     }
 
-    private func normalizeCosine(_ value: Double) -> Double {
-        max(0, min(1, (value + 1) / 2))
+    private func cosineSimilarity(_ a: [Double], _ b: [Double]) -> Double {
+        guard !a.isEmpty, a.count == b.count else { return 0 }
+        var dot: Double = 0
+        var normA: Double = 0
+        var normB: Double = 0
+        for i in 0..<a.count {
+            let va = a[i]
+            let vb = b[i]
+            dot += va * vb
+            normA += va * va
+            normB += vb * vb
+        }
+        let denom = sqrt(normA) * sqrt(normB)
+        return denom == 0 ? 0 : dot / denom
+    }
+
+    private func recencyBoost(for chunk: MemoryChunk) -> Double {
+        guard let timestamp = chunk.latestTimestamp else { return 0.5 }
+        let now = Date()
+        let seconds = now.timeIntervalSince(timestamp)
+        let days = seconds / (60 * 60 * 24)
+        let halfLife = 30.0
+        let decay = exp(-log(2.0) * days / halfLife)
+        return decay
     }
 
     private func preferredSourceKinds(for query: String) -> Set<SourceKind> {
