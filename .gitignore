@@ -1,0 +1,25 @@
+# Swift Package Manager
+.build/
+/Packages
+/*.xcodeproj
+DerivedData/
+
+# SwiftPM Logs
+.swiftpm/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode / Swift Playgrounds
+xcuserdata/
+*.xcuserstate
+playground.xcworkspace/
+
+# Others
+*.swp
+*.swo
+*.tmp
+.idea/
+.vscode/
