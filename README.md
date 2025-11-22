@@ -26,12 +26,18 @@ swift run EmailMemoryDemo [--chat-model gpt-4.1-mini]
 
 The demo:
 1. Builds ~15k omnichannel interactions (~3k emails, 2k Slack updates, 10k quick chat messages) in parallel with live progress bars.
-2. Constructs memory chunks across levels and prints per-level counts plus compression stats.
-3. Builds persona/entity/situation cards using sample text.
+2. Constructs memory chunks with per-chunk caching and logs shard start/finish plus upload progress.
+3. Builds persona/entity/situation cards using sample text (in parallel with progress indicators).
 4. Runs multi-stage retrieval for a sample query.
 5. Renders the ASCII chunk tree + unified context block.
 6. Dumps the graph traversal trace (ASCII) that shows how the ANN search walked the k-NN graph.
 7. Drafts an LLM reply using persona, entity insights, situation summary, and selected chunks.
+
+Caching notes:
+
+- The demo writes interactions to `.cache/interactions.json` and memory chunks to `.cache/memoryChunks.json`. Future runs reuse them automatically.
+- Each chunk (and aggregation) is also cached individually under `.cache/chunkStore/`, so if OpenAI throttles midway through a build you can rerun without losing progress.
+- Use `--chat-model gpt-4.1-mini` to fall back to the lower TPM tier; `gpt-5-mini` is the default (500k TPM).
 
 ## Usage
 
