@@ -2,6 +2,16 @@ import Foundation
 
 /// Performs multi-stage retrieval with filtering, vector search, re-ranking, and context assembly.
 public struct MultiStageRetriever: Sendable {
+    /// Timing information captured during retrieval.
+    public struct RetrievalMetrics: Sendable {
+        public let embedTime: TimeInterval
+        public let indexBuildTime: TimeInterval
+        public let graphSearchTime: TimeInterval
+        public let rerankTime: TimeInterval
+        public let contextAssemblyTime: TimeInterval
+        public let totalTime: TimeInterval
+    }
+
     public let openAI: OpenAIClient
 
     public init(openAI: OpenAIClient) {
@@ -17,6 +27,28 @@ public struct MultiStageRetriever: Sendable {
         chunks: [MemoryChunk],
         k: Int = 8
     ) async throws -> (selectedChunks: [MemoryChunk], enrichedContext: String) {
+        let result = try await retrieveWithMetrics(
+            query: query,
+            persona: persona,
+            entityCards: entityCards,
+            situation: situation,
+            chunks: chunks,
+            k: k
+        )
+        return (result.selectedChunks, result.enrichedContext)
+    }
+
+    /// Retrieves context and exposes timing information.
+    public func retrieveWithMetrics(
+        query: String,
+        persona: PersonaCard?,
+        entityCards: [EntityCard],
+        situation: SituationCard?,
+        chunks: [MemoryChunk],
+        k: Int = 8
+    ) async throws -> (selectedChunks: [MemoryChunk], enrichedContext: String, metrics: RetrievalMetrics) {
+        let totalStart = Date()
+
         guard !chunks.isEmpty else {
             let bundle = buildContext(
                 persona: persona,
@@ -25,10 +57,21 @@ public struct MultiStageRetriever: Sendable {
                 chunks: [],
                 graphTrace: nil
             )
-            return ([], bundle)
+            let metrics = RetrievalMetrics(
+                embedTime: 0,
+                indexBuildTime: 0,
+                graphSearchTime: 0,
+                rerankTime: 0,
+                contextAssemblyTime: 0,
+                totalTime: Date().timeIntervalSince(totalStart)
+            )
+            return ([], bundle, metrics)
         }
 
+        let embedStart = Date()
         let queryEmbedding = try await openAI.embedText(query)
+        let embedTime = Date().timeIntervalSince(embedStart)
+
         var candidateChunks = chunks
 
         if !entityCards.isEmpty {
@@ -57,7 +100,11 @@ public struct MultiStageRetriever: Sendable {
             timeWindow: nil
         )
 
+        let indexBuildStart = Date()
         let index = MemoryIndex(chunks: candidateChunks)
+        let indexBuildTime = Date().timeIntervalSince(indexBuildStart)
+
+        let graphSearchStart = Date()
         let searchResult = index.searchWithTrace(
             queryEmbedding: queryEmbedding,
             k: max(12, k * 3),
@@ -66,7 +113,9 @@ public struct MultiStageRetriever: Sendable {
         )
         var preliminary = searchResult.chunks
         let traversalTrace = searchResult.trace
+        let graphSearchTime = Date().timeIntervalSince(graphSearchStart)
 
+        let rerankStart = Date()
         if preliminary.count > k {
             let judgments = try await openAI.relevanceJudgments(query: query, chunkSummaries: preliminary)
             let filtered = preliminary.filter { judgments[$0.id] ?? true }
@@ -74,7 +123,6 @@ public struct MultiStageRetriever: Sendable {
                 preliminary = filtered
             }
         }
-
         let rescored = preliminary.map { chunk -> (MemoryChunk, Double) in
             let similarity = cosineSimilarity(chunk.embedding, queryEmbedding)
             let recency = recencyBoost(for: chunk)
@@ -88,6 +136,9 @@ public struct MultiStageRetriever: Sendable {
             return lhs.1 > rhs.1
         }
         let selected = rescored.prefix(min(k, rescored.count)).map { $0.0 }
+        let rerankTime = Date().timeIntervalSince(rerankStart)
+
+        let contextStart = Date()
         let context = buildContext(
             persona: persona,
             entities: entityCards,
@@ -95,7 +146,19 @@ public struct MultiStageRetriever: Sendable {
             chunks: selected,
             graphTrace: traversalTrace
         )
-        return (selected, context)
+        let contextTime = Date().timeIntervalSince(contextStart)
+        let totalTime = Date().timeIntervalSince(totalStart)
+
+        let metrics = RetrievalMetrics(
+            embedTime: embedTime,
+            indexBuildTime: indexBuildTime,
+            graphSearchTime: graphSearchTime,
+            rerankTime: rerankTime,
+            contextAssemblyTime: contextTime,
+            totalTime: totalTime
+        )
+
+        return (selected, context, metrics)
     }
 
     private func requiredParticipants(from entityCards: [EntityCard]) -> Set<String>? {

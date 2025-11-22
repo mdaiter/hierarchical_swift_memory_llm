@@ -20,7 +20,7 @@ public struct ContextRetriever: Sendable {
         chunks: [MemoryChunk],
         k: Int = 8
     ) async throws -> (selectedChunks: [MemoryChunk], contextText: String) {
-        let result = try await multiStage.retrieve(
+        let result = try await retrieveContextBundleWithMetrics(
             query: query,
             persona: persona,
             entityCards: entityCards,
@@ -28,7 +28,27 @@ public struct ContextRetriever: Sendable {
             chunks: chunks,
             k: k
         )
-        return (result.selectedChunks, result.enrichedContext)
+        return (result.selectedChunks, result.contextText)
+    }
+
+    /// Retrieves context and exposes detailed metrics.
+    public func retrieveContextBundleWithMetrics(
+        query: String,
+        persona: PersonaCard?,
+        entityCards: [EntityCard],
+        situation: SituationCard?,
+        chunks: [MemoryChunk],
+        k: Int = 8
+    ) async throws -> (selectedChunks: [MemoryChunk], contextText: String, metrics: MultiStageRetriever.RetrievalMetrics) {
+        let result = try await multiStage.retrieveWithMetrics(
+            query: query,
+            persona: persona,
+            entityCards: entityCards,
+            situation: situation,
+            chunks: chunks,
+            k: k
+        )
+        return (result.selectedChunks, result.enrichedContext, result.metrics)
     }
 
     /// Renders chunks into a textual block suitable for LLM prompts.

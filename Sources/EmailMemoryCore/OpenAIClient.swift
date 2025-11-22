@@ -24,9 +24,14 @@ public final class OpenAIClient: @unchecked Sendable {
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let chatModel: String
 
-    public init(apiKey: String? = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]) {
+    public init(
+        apiKey: String? = ProcessInfo.processInfo.environment["OPENAI_API_KEY"],
+        chatModel: String = "gpt-5-mini"
+    ) {
         self.apiKey = apiKey
+        self.chatModel = chatModel
         self.session = URLSession(configuration: .default)
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
@@ -47,8 +52,7 @@ public final class OpenAIClient: @unchecked Sendable {
         let prompt = "Instruction: \(taskDescription)\n\nContent:\n\(text)"
         return try await completeChat(
             systemPrompt: "You are a semantic compression assistant. Be concise, factual, and structured.",
-            userPrompt: prompt,
-            temperature: 0.2
+            userPrompt: prompt
         )
     }
 
@@ -68,9 +72,9 @@ public final class OpenAIClient: @unchecked Sendable {
     }
 
     /// Performs a generic chat completion and returns the assistant text.
-    public func completeChat(systemPrompt: String, userPrompt: String, temperature: Double = 0.2) async throws -> String {
+    public func completeChat(systemPrompt: String, userPrompt: String, temperature: Double = 1.0) async throws -> String {
         let requestBody = ChatCompletionsRequest(
-            model: "gpt-4.1-mini",
+            model: chatModel,
             messages: [
                 ChatMessage(role: "system", content: systemPrompt),
                 ChatMessage(role: "user", content: userPrompt)
@@ -86,11 +90,11 @@ public final class OpenAIClient: @unchecked Sendable {
         guard
             let choice = completion.choices.first,
             let content = choice.message?.content,
-            !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            !content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty
         else {
             throw OpenAIClientError.invalidResponse
         }
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
     }
 
     /// Asks the LLM to judge chunk relevance to a query.
@@ -102,8 +106,7 @@ public final class OpenAIClient: @unchecked Sendable {
         let userPrompt = "Query: \(query)\n\nChunks:\n\(descriptions)\n\nRespond with `ID: YES` or `ID: NO` for each chunk based on relevance."
         let response = try await completeChat(
             systemPrompt: "You judge whether semantic memories are relevant to the query. Reply with YES or NO per chunk only.",
-            userPrompt: userPrompt,
-            temperature: 0
+            userPrompt: userPrompt
         )
         var result: [String: Bool] = [:]
         response.split(separator: "\n").forEach { line in

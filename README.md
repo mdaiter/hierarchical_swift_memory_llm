@@ -21,11 +21,11 @@ EmailMemory started as a lightweight Swift package for summarizing email threads
 Run the demo with valid `OPENAI_API_KEY`:
 
 ```bash
-swift run EmailMemoryDemo
+swift run EmailMemoryDemo [--chat-model gpt-4.1-mini]
 ```
 
 The demo:
-1. Builds ~150 omnichannel interactions (~30 emails, 20 Slack updates, 100 quick chat messages).
+1. Builds ~15k omnichannel interactions (~3k emails, 2k Slack updates, 10k quick chat messages) in parallel with live progress bars.
 2. Constructs memory chunks across levels and prints per-level counts plus compression stats.
 3. Builds persona/entity/situation cards using sample text.
 4. Runs multi-stage retrieval for a sample query.
